@@ -375,8 +375,8 @@ class AutoClickerApp:
         s = load_settings()
 
         self.accent = s.get("accent", ACCENT_PRESETS[0])
-        self.cps_var = tk.StringVar(value=str(s.get("cps", 20)))
-        self.cdc_var = tk.StringVar(value=str(s.get("cdc", 50)))
+        self.cps_value = float(s.get("cps", 20))
+        self.cdc_value = float(s.get("cdc", 50))
         self.button_var = tk.StringVar(value=s.get("button", "Left"))
 
         self.hotkey_combo = s.get("hotkey_combo", [0x75])  # default F6
@@ -385,364 +385,232 @@ class AutoClickerApp:
         self._hotkey_prev_state = False
         self.trigger_mode = s.get("trigger_mode", "Toggle")
 
-        self.engine.cps = float(self.cps_var.get() or 20)
-        self.engine.cdc = float(self.cdc_var.get() or 50)
+        self.engine.cps = self.cps_value
+        self.engine.cdc = self.cdc_value
         self.engine.button = self.button_var.get()
 
         self.accent_swatch_canvases = []
 
-        root.title(APP_NAME)
+        root.title("Desyx")
         root.configure(bg=BG)
-        root.geometry("940x800")
-        root.minsize(900, 700)
-        root.resizable(True, True)
-        self._set_window_icon(root)
+        WIN_W, WIN_H = 460, 660
+        root.geometry(f"{WIN_W}x{WIN_H}")
+        root.resizable(False, False)
 
-        self._build_layout()
-        self._show_page("main")
+        self._build_ui()
         self._style_mode_buttons()
+        self._style_button_buttons()
         self._apply_accent()
         self._poll_hotkey()
 
-    def _set_window_icon(self, root):
-        try:
-            root.iconbitmap(resource_path("icon.ico"))
-        except Exception:
-            pass  # non-fatal - app still runs fine without a custom icon
+    # ----- UI -----
+    def _build_ui(self):
+        root_frame = tk.Frame(self.root, bg=BG)
+        root_frame.pack(fill="both", expand=True)
 
-    # ----- top level layout -----
-    def _build_layout(self):
-        outer = tk.Frame(self.root, bg=BG)
-        outer.pack(fill="both", expand=True)
+        # --- header ---
+        header = tk.Frame(root_frame, bg=BG)
+        header.pack(fill="x", padx=20, pady=(20, 12))
+        self.accent_bar = tk.Frame(header, bg=self.accent, width=4)
+        self.accent_bar.pack(side="left", fill="y", padx=(0, 12))
+        title_col = tk.Frame(header, bg=BG)
+        title_col.pack(side="left")
+        self.title_label = tk.Label(title_col, text="DESYX", bg=BG, fg=self.accent,
+                                     font=("Segoe UI", 20, "bold"))
+        self.title_label.pack(anchor="w")
+        tk.Label(title_col, text="v1.0.0", bg=BG, fg=SUBTEXT,
+                 font=("Segoe UI", 9)).pack(anchor="w")
 
-        # Sidebar
-        self.sidebar = tk.Frame(outer, bg=SIDEBAR_BG, width=190)
-        self.sidebar.pack(side="left", fill="y")
-        self.sidebar.pack_propagate(False)
+        tk.Frame(root_frame, bg=CARD_BORDER, height=1).pack(fill="x", padx=20, pady=(0, 16))
 
-        title_row = tk.Frame(self.sidebar, bg=SIDEBAR_BG)
-        title_row.pack(fill="x", pady=(20, 24), padx=16)
+        # --- SPEED card ---
+        speed_card = card(root_frame)
+        speed_card.pack(fill="x", padx=20, pady=(0, 14))
+        self.speed_title = card_title(speed_card, "\u2699 SPEED", self.accent)
 
-        self.logo_img = None
-        try:
-            self.logo_img = tk.PhotoImage(file=resource_path("logo.png"))
-            # scale down if the source PNG is larger than we need in the sidebar
-            w, h = self.logo_img.width(), self.logo_img.height()
-            target = 28
-            if w > target:
-                factor = max(1, round(w / target))
-                self.logo_img = self.logo_img.subsample(factor, factor)
-            self.logo_label = tk.Label(title_row, image=self.logo_img, bg=SIDEBAR_BG)
-        except Exception:
-            self.logo_label = tk.Label(title_row, text="\u2716", bg=SIDEBAR_BG,
-                                        font=("Segoe UI", 16, "bold"))
-        self.logo_label.pack(side="left")
-        tk.Label(title_row, text=f" {APP_NAME}", bg=SIDEBAR_BG, fg=TEXT,
-                 font=("Segoe UI", 13, "bold")).pack(side="left")
+        speed_row = tk.Frame(speed_card, bg=CARD_BG)
+        speed_row.pack(fill="x", padx=16, pady=(0, 18))
 
-        self.nav_buttons = {}
-        for key, label, icon in [("main", "Main", "\u2302"),
-                                  ("settings", "Settings", "\u2699"),
-                                  ("about", "About", "\u2139")]:
-            b = tk.Label(self.sidebar, text=f"  {icon}   {label}", bg=SIDEBAR_BG, fg=SUBTEXT,
-                         font=("Segoe UI", 11), anchor="w", padx=8, pady=10, cursor="hand2")
-            b.pack(fill="x", padx=10, pady=2)
-            b.bind("<Button-1>", lambda e, k=key: self._show_page(k))
-            self.nav_buttons[key] = b
+        cps_col = tk.Frame(speed_row, bg=CARD_BG)
+        cps_col.pack(side="left", fill="both", expand=True)
+        tk.Label(cps_col, text="clicks per second", bg=CARD_BG, fg=SUBTEXT,
+                 font=("Segoe UI", 9)).pack(anchor="w")
+        cps_val_row = tk.Frame(cps_col, bg=CARD_BG)
+        cps_val_row.pack(anchor="w", pady=(2, 0))
+        self.cps_entry = self._make_big_number_entry(cps_val_row, self.cps_value, "CPS", self._on_cps_commit)
+        cps_col.pack_propagate(True)
 
-        tk.Label(self.sidebar, text="v1.0.0", bg=SIDEBAR_BG, fg=SUBTEXT,
-                 font=("Segoe UI", 8)).pack(side="bottom", pady=14, padx=16, anchor="w")
+        tk.Frame(speed_row, bg=CARD_BORDER, width=1).pack(side="left", fill="y", padx=14)
 
-        # Content area (pages stacked / swapped)
-        self.content = tk.Frame(outer, bg=BG)
-        self.content.pack(side="left", fill="both", expand=True)
+        cdc_col = tk.Frame(speed_row, bg=CARD_BG)
+        cdc_col.pack(side="left", fill="both", expand=True)
+        tk.Label(cdc_col, text="click duty (cdc)", bg=CARD_BG, fg=SUBTEXT,
+                 font=("Segoe UI", 9)).pack(anchor="w")
+        cdc_val_row = tk.Frame(cdc_col, bg=CARD_BG)
+        cdc_val_row.pack(anchor="w", pady=(2, 0))
+        self.cdc_entry = self._make_big_number_entry(cdc_val_row, self.cdc_value, "%", self._on_cdc_commit)
 
-        self.pages = {
-            "main": self._build_main_page(self.content),
-            "settings": self._build_settings_page(self.content),
-            "about": self._build_about_page(self.content),
-        }
+        # --- CONTROLS card ---
+        controls_card = card(root_frame)
+        controls_card.pack(fill="x", padx=20, pady=(0, 14))
+        self.controls_title = card_title(controls_card, "\u2328 CONTROLS", self.accent)
 
-    def _show_page(self, key):
-        for k, frame in self.pages.items():
-            frame.pack_forget()
-        self.pages[key].pack(fill="both", expand=True)
-        for k, btn in self.nav_buttons.items():
-            if k == key:
-                btn.configure(bg="#1d1d27", fg=TEXT)
-            else:
-                btn.configure(bg=SIDEBAR_BG, fg=SUBTEXT)
+        hk_wrap = tk.Frame(controls_card, bg=CARD_BG)
+        hk_wrap.pack(fill="x", padx=16)
+        tk.Label(hk_wrap, text="hotkey", bg=CARD_BG, fg=SUBTEXT, font=("Segoe UI", 9)).pack(anchor="w")
 
-    # ----- MAIN PAGE -----
-    def _build_main_page(self, parent):
-        page = tk.Frame(parent, bg=BG)
-        pad = 20
+        self.hotkey_box = tk.Frame(hk_wrap, bg="#1a1420", highlightthickness=1,
+                                    highlightbackground=self.accent, cursor="hand2")
+        self.hotkey_box.pack(fill="x", pady=(4, 6))
+        hk_inner = tk.Frame(self.hotkey_box, bg="#1a1420")
+        hk_inner.pack(fill="x", padx=12, pady=10)
+        self.hotkey_icon = tk.Label(hk_inner, text="\u2328", bg="#1a1420", fg=self.accent, font=("Segoe UI", 12))
+        self.hotkey_icon.pack(side="left")
+        self.hotkey_display = tk.Label(hk_inner, text=combo_to_string(self.hotkey_combo),
+                                        bg="#1a1420", fg=self.accent, font=("Segoe UI", 14, "bold"))
+        self.hotkey_display.pack(side="left", padx=(10, 0))
+        self.hotkey_pencil = tk.Label(hk_inner, text="\u270E", bg="#1a1420", fg=SUBTEXT, font=("Segoe UI", 11))
+        self.hotkey_pencil.pack(side="right")
+        for w in (self.hotkey_box, hk_inner, self.hotkey_icon, self.hotkey_display, self.hotkey_pencil):
+            w.bind("<Button-1>", lambda e: self._begin_capture())
 
-        # --- top row: status card + start/stop ---
-        top_row = tk.Frame(page, bg=BG)
-        top_row.pack(fill="x", padx=pad, pady=(pad, 12))
+        tk.Label(hk_wrap, text="u can use combos like shift+q or ctrl+f6, or mouse side\n"
+                                "buttons and extra mouse buttons - whatever u want",
+                 bg=CARD_BG, fg=SUBTEXT, font=("Segoe UI", 8), justify="left").pack(anchor="w", pady=(0, 12))
 
-        self.status_card = card(top_row)
-        self.status_card.pack(side="left", fill="both", expand=True, padx=(0, 12), ipady=10)
+        tk.Frame(controls_card, bg=CARD_BORDER, height=1).pack(fill="x", padx=16, pady=(0, 12))
 
-        status_inner = tk.Frame(self.status_card, bg=CARD_BG)
-        status_inner.pack(fill="both", expand=True, padx=16, pady=16)
+        opts_row = tk.Frame(controls_card, bg=CARD_BG)
+        opts_row.pack(fill="x", padx=16, pady=(0, 18))
 
-        self.status_canvas = tk.Canvas(status_inner, width=70, height=70, bg=CARD_BG, highlightthickness=0)
-        self.status_canvas.pack(side="left", padx=(0, 16))
-
-        text_col = tk.Frame(status_inner, bg=CARD_BG)
-        text_col.pack(side="left", fill="both", expand=True)
-        status_row = tk.Frame(text_col, bg=CARD_BG)
-        status_row.pack(anchor="w")
-        tk.Label(status_row, text="Status: ", bg=CARD_BG, fg=TEXT,
-                 font=("Segoe UI", 13)).pack(side="left")
-        self.status_value_label = tk.Label(status_row, text="Stopped", bg=CARD_BG, fg=STOPPED_RED,
-                                            font=("Segoe UI", 13, "bold"))
-        self.status_value_label.pack(side="left")
-        self.status_sub_label = tk.Label(text_col, text="Press your hotkey to start clicking",
-                                          bg=CARD_BG, fg=SUBTEXT, font=("Segoe UI", 9))
-        self.status_sub_label.pack(anchor="w", pady=(4, 0))
-
-        btn_col = tk.Frame(top_row, bg=BG)
-        btn_col.pack(side="left", fill="y")
-        self.start_btn = tk.Button(btn_col, text="\u25B6  Start (F6)", font=("Segoe UI", 11, "bold"),
-                                    relief="flat", bd=0, width=18, height=2, command=self._start_clicking)
-        self.start_btn.pack(pady=(0, 8))
-        self.stop_btn = tk.Button(btn_col, text="\u25A0  Stop (F6)", font=("Segoe UI", 11, "bold"),
-                                   relief="flat", bd=0, width=18, height=2, command=self._stop_clicking)
-        self.stop_btn.pack()
-
-        # --- middle row: left column (cps/cdc) + right column (button/hotkey) ---
-        mid_row = tk.Frame(page, bg=BG)
-        mid_row.pack(fill="both", expand=True, padx=pad, pady=6)
-
-        left_col = tk.Frame(mid_row, bg=BG)
-        left_col.pack(side="left", fill="both", expand=True, padx=(0, 12))
-        right_col = tk.Frame(mid_row, bg=BG, width=270)
-        right_col.pack(side="left", fill="y")
-        right_col.pack_propagate(False)
-
-        # CPS card
-        cps_card = card(left_col)
-        cps_card.pack(fill="x", pady=(0, 12))
-        self.cps_title = card_title(cps_card, "\u26A1 CPS (Clicks Per Second)", self.accent)
-        cps_row = tk.Frame(cps_card, bg=CARD_BG)
-        cps_row.pack(fill="x", padx=16, pady=(0, 16))
-        self.cps_spin = tk.Spinbox(cps_row, from_=1, to=200, textvariable=self.cps_var,
-                                    font=("Segoe UI", 13), width=10, relief="flat",
-                                    bg="#1c1c25", fg=TEXT, insertbackground=TEXT,
-                                    buttonbackground="#1c1c25", justify="left")
-        self.cps_spin.pack(fill="x", ipady=6)
-        self.cps_var.trace_add("write", lambda *a: self._sync_cps())
-
-        # CDC card
-        cdc_card = card(left_col)
-        cdc_card.pack(fill="x")
-        self.cdc_title = card_title(cdc_card, "\u25D4 CDC (Click Duty Cycle)", self.accent)
-        cdc_row = tk.Frame(cdc_card, bg=CARD_BG)
-        cdc_row.pack(fill="x", padx=16)
-        self.cdc_spin = tk.Spinbox(cdc_row, from_=1, to=99, textvariable=self.cdc_var,
-                                    font=("Segoe UI", 13), width=10, relief="flat",
-                                    bg="#1c1c25", fg=TEXT, insertbackground=TEXT,
-                                    buttonbackground="#1c1c25", justify="left")
-        self.cdc_spin.pack(side="left", fill="x", expand=True, ipady=6)
-        tk.Label(cdc_row, text="%", bg=CARD_BG, fg=SUBTEXT, font=("Segoe UI", 12)).pack(side="left", padx=8)
-        self.cdc_var.trace_add("write", lambda *a: self._sync_cdc())
-
-        note = tk.Frame(cdc_card, bg=CARD_BG)
-        note.pack(fill="x", padx=16, pady=(10, 16))
-        tk.Label(note, text="\u2139  Duty Cycle determines the ratio of click\n     time to the total click cycle.",
-                 bg=CARD_BG, fg=SUBTEXT, font=("Segoe UI", 9), justify="left").pack(anchor="w")
-
-        # Mouse button card
-        mb_card = card(right_col)
-        mb_card.pack(fill="x", pady=(0, 12))
-        self.mb_title = card_title(mb_card, "\U0001F5B1 Mouse Button", self.accent)
-        self.radio_buttons = []
+        mb_col = tk.Frame(opts_row, bg=CARD_BG)
+        mb_col.pack(side="left", fill="both", expand=True)
+        tk.Label(mb_col, text="mouse button", bg=CARD_BG, fg=SUBTEXT, font=("Segoe UI", 9)).pack(anchor="w")
+        mb_row = tk.Frame(mb_col, bg=CARD_BG)
+        mb_row.pack(anchor="w", pady=(6, 0))
+        self.button_buttons = {}
         for opt in ["Left", "Right", "Middle"]:
-            rb = tk.Radiobutton(mb_card, text=f"{opt} Click", variable=self.button_var, value=opt,
-                                 bg=CARD_BG, fg=TEXT, selectcolor=CARD_BG, activebackground=CARD_BG,
-                                 activeforeground=TEXT, font=("Segoe UI", 11),
-                                 command=self._sync_button, anchor="w")
-            rb.pack(fill="x", padx=16, pady=4)
-            self.radio_buttons.append(rb)
-        tk.Frame(mb_card, bg=CARD_BG, height=10).pack()
+            b = tk.Button(mb_row, text=opt, relief="flat", bd=0, font=("Segoe UI", 10, "bold"),
+                          command=lambda o=opt: self._select_button(o), padx=10, pady=6)
+            b.pack(side="left", padx=(0, 6))
+            self.button_buttons[opt] = b
 
-        # Hotkey card
-        hk_card = card(right_col)
-        hk_card.pack(fill="x")
-        self.hk_title = card_title(hk_card, "\u2328 Hotkey", self.accent)
-        hk_row = tk.Frame(hk_card, bg=CARD_BG)
-        hk_row.pack(fill="x", padx=16, pady=(0, 16))
-        self.hotkey_display = tk.Label(hk_row, text=combo_to_string(self.hotkey_combo), bg="#1c1c25",
-                                        fg=TEXT, font=("Segoe UI", 11, "bold"), pady=8)
-        self.hotkey_display.pack(fill="x", pady=(0, 8))
-        self.set_hotkey_btn = tk.Button(hk_row, text="Set Hotkey", relief="flat", bd=0,
-                                         bg="#24242e", fg=TEXT, font=("Segoe UI", 10),
-                                         command=self._begin_capture)
-        self.set_hotkey_btn.pack(fill="x", ipady=6)
-        tk.Label(hk_row, text="Works with any keyboard key, or Mouse 3/4/5.\nExtra mouse buttons? See the note below.",
-                 bg=CARD_BG, fg=SUBTEXT, font=("Segoe UI", 8), justify="left").pack(anchor="w", pady=(6, 0))
+        tk.Frame(opts_row, bg=CARD_BORDER, width=1).pack(side="left", fill="y", padx=10)
 
-        mode_label = tk.Label(hk_row, text="Trigger Mode", bg=CARD_BG, fg=SUBTEXT,
-                               font=("Segoe UI", 9, "bold"))
-        mode_label.pack(anchor="w", pady=(14, 4))
-        mode_row = tk.Frame(hk_row, bg=CARD_BG)
-        mode_row.pack(fill="x")
+        mode_col = tk.Frame(opts_row, bg=CARD_BG)
+        mode_col.pack(side="left", fill="both", expand=True)
+        tk.Label(mode_col, text="mode", bg=CARD_BG, fg=SUBTEXT, font=("Segoe UI", 9)).pack(anchor="w")
+        mode_row = tk.Frame(mode_col, bg=CARD_BG)
+        mode_row.pack(anchor="w", pady=(6, 0))
         self.toggle_mode_btn = tk.Button(mode_row, text="Toggle", relief="flat", bd=0,
                                           font=("Segoe UI", 10, "bold"),
-                                          command=lambda: self._set_trigger_mode("Toggle"))
-        self.toggle_mode_btn.pack(side="left", fill="x", expand=True, padx=(0, 4), ipady=6)
+                                          command=lambda: self._set_trigger_mode("Toggle"),
+                                          padx=10, pady=6)
+        self.toggle_mode_btn.pack(side="left", padx=(0, 6))
         self.hold_mode_btn = tk.Button(mode_row, text="Hold", relief="flat", bd=0,
                                         font=("Segoe UI", 10, "bold"),
-                                        command=lambda: self._set_trigger_mode("Hold"))
-        self.hold_mode_btn.pack(side="left", fill="x", expand=True, padx=(4, 0), ipady=6)
-        tk.Label(hk_row, text="Toggle: press once to start, again to stop.\nHold: clicks only while the key is held down.",
-                 bg=CARD_BG, fg=SUBTEXT, font=("Segoe UI", 8), justify="left").pack(anchor="w", pady=(8, 0))
+                                        command=lambda: self._set_trigger_mode("Hold"),
+                                        padx=10, pady=6)
+        self.hold_mode_btn.pack(side="left")
 
-        # --- theme card ---
-        theme_card = card(page)
-        theme_card.pack(fill="x", padx=pad, pady=(12, pad))
-        self.theme_title = card_title(theme_card, "\U0001F3A8 Theme / Color", self.accent)
-        swatch_row = tk.Frame(theme_card, bg=CARD_BG)
-        swatch_row.pack(fill="x", padx=16, pady=(0, 18))
-
+        # --- ACCENT card ---
+        accent_card = card(root_frame)
+        accent_card.pack(fill="x", padx=20, pady=(0, 14))
+        self.accent_title = card_title(accent_card, "\U0001F3A8 ACCENT", self.accent)
+        swatch_row = tk.Frame(accent_card, bg=CARD_BG)
+        swatch_row.pack(fill="x", padx=16, pady=(0, 16))
         for color in ACCENT_PRESETS:
             self._make_swatch(swatch_row, color)
         self._make_custom_swatch(swatch_row)
 
-        return page
+        # --- start/stop toggle button ---
+        self.toggle_btn = tk.Button(root_frame, text="", font=("Segoe UI", 13, "bold"),
+                                     relief="flat", bd=0, command=self._toggle, height=2)
+        self.toggle_btn.pack(fill="x", padx=20, pady=(4, 20))
+        self._refresh_toggle_label()
 
+    # ----- big fixed-format number entry (digits + single "." only, always N.NN) -----
+    def _make_big_number_entry(self, parent, initial_value, suffix, commit_callback):
+        var = tk.StringVar(value=f"{initial_value:.2f}")
+        vcmd = (self.root.register(self._validate_number_chars), "%P")
+        entry = tk.Entry(parent, textvariable=var, font=("Segoe UI", 26, "bold"),
+                          bg=CARD_BG, fg=self.accent, insertbackground=self.accent,
+                          relief="flat", bd=0, width=7, validate="key", validatecommand=vcmd)
+        entry.pack(side="left")
+        entry._var = var
+        entry._commit_callback = commit_callback
+        entry.bind("<FocusOut>", lambda e: self._commit_number_entry(entry, suffix_ignore=None))
+        entry.bind("<Return>", lambda e: (self._commit_number_entry(entry, suffix_ignore=None), entry.master.focus_set()))
+        tk.Label(parent, text=suffix, bg=CARD_BG, fg=SUBTEXT, font=("Segoe UI", 11)).pack(side="left", padx=(4, 0), pady=(10, 0))
+        return entry
+
+    def _validate_number_chars(self, proposed):
+        if proposed == "":
+            return True  # allow clearing while typing; refilled on commit
+        if proposed.count(".") > 1:
+            return False
+        return all(ch.isdigit() or ch == "." for ch in proposed)
+
+    def _commit_number_entry(self, entry, suffix_ignore):
+        raw = entry._var.get()
+        try:
+            v = float(raw) if raw not in ("", ".") else 0.0
+        except ValueError:
+            v = 0.0
+        v = entry._commit_callback(v)  # callback clamps + applies, returns final clamped value
+        entry._var.set(f"{v:.2f}")
+
+    def _on_cps_commit(self, v):
+        v = max(0.1, min(v if v > 0 else 20.0, 500.0))
+        self.cps_value = v
+        self.engine.cps = v
+        self._save()
+        return v
+
+    def _on_cdc_commit(self, v):
+        v = max(1.0, min(v if v > 0 else 50.0, 99.0))
+        self.cdc_value = v
+        self.engine.cdc = v
+        self._save()
+        return v
+
+    # ----- swatches -----
     def _make_swatch(self, parent, color):
-        c = tk.Canvas(parent, width=40, height=40, bg=CARD_BG, highlightthickness=0, cursor="hand2")
-        c.pack(side="left", padx=6)
-        c.create_oval(4, 4, 36, 36, fill=color, outline="")
+        c = tk.Canvas(parent, width=34, height=34, bg=CARD_BG, highlightthickness=0, cursor="hand2")
+        c.pack(side="left", padx=5)
+        c.create_oval(3, 3, 31, 31, fill=color, outline="")
         c.color = color
         c.bind("<Button-1>", lambda e, col=color: self._select_accent(col))
         self.accent_swatch_canvases.append(c)
 
     def _make_custom_swatch(self, parent):
-        c = tk.Canvas(parent, width=40, height=40, bg=CARD_BG, highlightthickness=0, cursor="hand2")
-        c.pack(side="left", padx=6)
-        c.create_oval(4, 4, 36, 36, fill=CARD_BG, outline=SUBTEXT, dash=(2, 2))
-        c.create_text(20, 20, text="+", fill=SUBTEXT, font=("Segoe UI", 14, "bold"))
+        c = tk.Canvas(parent, width=34, height=34, bg=CARD_BG, highlightthickness=0, cursor="hand2")
+        c.pack(side="left", padx=5)
+        c.create_oval(3, 3, 31, 31, fill=CARD_BG, outline=SUBTEXT, dash=(2, 2))
+        c.create_text(17, 17, text="+", fill=SUBTEXT, font=("Segoe UI", 12, "bold"))
         c.color = None
         c.bind("<Button-1>", lambda e: self._pick_custom_accent())
 
-    # ----- SETTINGS PAGE -----
-    def _build_settings_page(self, parent):
-        page = tk.Frame(parent, bg=BG)
-        wrap = card(page)
-        wrap.pack(fill="x", padx=20, pady=20)
-        card_title(wrap, "\u2699 Settings", self.accent)
-        tk.Label(wrap, text="This build keeps things simple - all options live on the Main page.\n"
-                             "(CPS, CDC, mouse button, hotkey, and theme.)",
-                 bg=CARD_BG, fg=SUBTEXT, font=("Segoe UI", 10), justify="left").pack(
-            anchor="w", padx=16, pady=(0, 18))
-
-        mouse_card = card(page)
-        mouse_card.pack(fill="x", padx=20, pady=(0, 20))
-        card_title(mouse_card, "\U0001F5B1 Using extra mouse buttons (Logitech / Razer / etc.)", self.accent)
-        tk.Label(mouse_card, justify="left", wraplength=740, bg=CARD_BG, fg=SUBTEXT,
-                 font=("Segoe UI", 10),
-                 text=(
-                     "The standard 5 buttons - Left, Right, Middle, and the two side buttons "
-                     "(Mouse 4 / Mouse 5) - work directly with any mouse, since Windows reports "
-                     "them the same way no matter the brand.\n\n"
-                     "Gaming mice with MORE than 5 buttons (extra thumb buttons, DPI switches, "
-                     "etc.) don't expose those to other apps directly - only the mouse's own "
-                     "software can see them. To use one of those as your hotkey here:\n\n"
-                     "  1. Open your mouse software (Logitech G HUB, Razer Synapse, "
-                     "SteelSeries GG, Corsair iCUE, etc.)\n"
-                     "  2. Find the button you want to use and set its action to a "
-                     "keystroke, not a macro or shortcut\n"
-                     "  3. Pick one of F13 through F24 as that keystroke - these don't exist "
-                     "on real keyboards, so they're safe to use and won't conflict with anything\n"
-                     "  4. Come back here, click Set Hotkey, and press that same extra button - "
-                     "it'll be captured as \"F13\" (or whichever you chose)"
-                 )).pack(anchor="w", padx=16, pady=(0, 18))
-        return page
-
-    # ----- ABOUT PAGE -----
-    def _build_about_page(self, parent):
-        page = tk.Frame(parent, bg=BG)
-        wrap = card(page)
-        wrap.pack(fill="x", padx=20, pady=20)
-        card_title(wrap, "\u2139 About", self.accent)
-        tk.Label(wrap, text=f"{APP_NAME}  \u2022  v1.0.0\n\n"
-                             "Built with Python + tkinter. Uses the Win32 SendInput API "
-                             "to simulate mouse clicks, and GetAsyncKeyState to listen for "
-                             "your custom hotkey globally.\n\n"
-                             "Some games and antivirus tools flag autoclickers - use responsibly.",
-                 bg=CARD_BG, fg=SUBTEXT, font=("Segoe UI", 10), justify="left", wraplength=600).pack(
-            anchor="w", padx=16, pady=(0, 18))
-        return page
-
-    # ----- value syncing -----
-    def _sync_cps(self):
-        try:
-            v = float(self.cps_var.get())
-            if v > 0:
-                v = min(v, 500.0)  # sane ceiling even if typed directly (bypasses spinbox arrows)
-                self.engine.cps = v
-                self._save()
-        except ValueError:
-            pass
-
-    def _sync_cdc(self):
-        try:
-            v = float(self.cdc_var.get())
-            if v > 0:
-                v = min(v, 99.0)  # keep below 100 so there's always a release gap
-                self.engine.cdc = v
-                self._save()
-        except ValueError:
-            pass
-
-    def _sync_button(self):
-        self.engine.button = self.button_var.get()
+    # ----- mouse button / trigger mode selection -----
+    def _select_button(self, opt):
+        self.button_var.set(opt)
+        self.engine.button = opt
+        self._style_button_buttons()
         self._save()
 
-    # ----- start/stop -----
-    def _start_clicking(self):
-        self.engine.enabled = True
-        self._refresh_status()
-
-    def _stop_clicking(self):
-        self.engine.enabled = False
-        self._refresh_status()
-
-    def _toggle(self):
-        if self.engine.enabled:
-            self._stop_clicking()
-        else:
-            self._start_clicking()
+    def _style_button_buttons(self):
+        for opt, btn in self.button_buttons.items():
+            if opt == self.button_var.get():
+                btn.configure(bg=self.accent, fg="#ffffff")
+            else:
+                btn.configure(bg="#24242e", fg=SUBTEXT)
 
     def _set_trigger_mode(self, mode):
         self.trigger_mode = mode
         self.engine.enabled = False
         self._style_mode_buttons()
-        self._refresh_status()
+        self._refresh_toggle_label()
         self._save()
-
-    def _save(self):
-        try:
-            cps = float(self.cps_var.get())
-        except ValueError:
-            cps = self.engine.cps
-        try:
-            cdc = float(self.cdc_var.get())
-        except ValueError:
-            cdc = self.engine.cdc
-        save_settings({
-            "accent": self.accent,
-            "cps": cps,
-            "cdc": cdc,
-            "button": self.button_var.get(),
-            "hotkey_combo": self.hotkey_combo,
-            "trigger_mode": self.trigger_mode,
-        })
 
     def _style_mode_buttons(self):
         if self.trigger_mode == "Toggle":
@@ -752,46 +620,25 @@ class AutoClickerApp:
             self.hold_mode_btn.config(bg=self.accent, fg="#ffffff")
             self.toggle_mode_btn.config(bg="#24242e", fg=SUBTEXT)
 
-    def _refresh_status(self):
-        hk = combo_to_string(self.hotkey_combo)
-        self.start_btn.config(text=f"\u25B6  Start ({hk})")
-        self.stop_btn.config(text=f"\u25A0  Stop ({hk})")
-        hold_mode = (self.trigger_mode == "Hold")
-        if self.engine.enabled:
-            self.status_value_label.config(text="Running", fg=self.accent)
-            sub = f"Holding {hk} to keep clicking" if hold_mode else "Press your hotkey to stop clicking"
-            self.status_sub_label.config(text=sub)
-            self.start_btn.config(bg="#24242e", fg=SUBTEXT, state="normal")
-            self.stop_btn.config(bg=self.accent, fg="#ffffff")
-        else:
-            self.status_value_label.config(text="Stopped", fg=STOPPED_RED)
-            sub = f"Hold {hk} to click" if hold_mode else "Press your hotkey to start clicking"
-            self.status_sub_label.config(text=sub)
-            self.start_btn.config(bg=self.accent, fg="#ffffff")
-            self.stop_btn.config(bg="#24242e", fg=SUBTEXT)
-        state = "disabled" if hold_mode else "normal"
-        self.start_btn.config(state=state)
-        self.stop_btn.config(state=state)
-        self._draw_status_ring()
+    # ----- start/stop -----
+    def _toggle(self):
+        self.engine.enabled = not self.engine.enabled
+        self._refresh_toggle_label()
 
-    def _draw_status_ring(self):
-        c = self.status_canvas
-        c.delete("all")
-        color = self.accent if self.engine.enabled else "#3a3a45"
-        c.create_oval(6, 6, 64, 64, outline=color, width=3)
-        # simple cursor arrow
-        c.create_polygon(27, 22, 27, 46, 33, 40, 37, 48, 41, 46, 37, 38, 45, 38,
-                          fill=TEXT, outline="")
+    def _refresh_toggle_label(self):
+        hk = combo_to_string(self.hotkey_combo)
         if self.engine.enabled:
-            for dx, dy in [(10, 8), (60, 10), (8, 58)]:
-                c.create_line(dx, dy, dx + 6, dy + 4, fill=color, width=2)
+            self.toggle_btn.config(text=f"\u25A0  stop  [{hk}]", bg="#24242e", fg=self.accent)
+        else:
+            self.toggle_btn.config(text=f"\u25B6  start  [{hk}]", bg=self.accent, fg="#ffffff")
 
     # ----- hotkey capture -----
     def _begin_capture(self):
+        if self.capturing_hotkey:
+            return
         self.capturing_hotkey = True
         self.capture_start_time = time.time()
-        self.set_hotkey_btn.config(text="Press keys... (Esc cancels)", state="disabled")
-        self.hotkey_display.config(text="...")
+        self.hotkey_display.config(text="press keys... (esc cancels)")
 
     def _finish_capture(self, combo):
         self.capturing_hotkey = False
@@ -799,8 +646,7 @@ class AutoClickerApp:
             self.hotkey_combo = combo
             self._save()
         self.hotkey_display.config(text=combo_to_string(self.hotkey_combo))
-        self.set_hotkey_btn.config(text="Set Hotkey", state="normal")
-        self._refresh_status()
+        self._refresh_toggle_label()
 
     def _poll_hotkey(self):
         if self.capturing_hotkey:
@@ -818,7 +664,7 @@ class AutoClickerApp:
             if self.trigger_mode == "Hold":
                 if pressed != self.engine.enabled:
                     self.engine.enabled = pressed
-                    self._refresh_status()
+                    self._refresh_toggle_label()
             else:  # Toggle
                 if pressed and not self._hotkey_prev_state:
                     self._toggle()
@@ -839,21 +685,33 @@ class AutoClickerApp:
             self._save()
 
     def _apply_accent(self):
-        if self.logo_img is None:
-            self.logo_label.configure(fg=self.accent)
-        for title in [self.cps_title, self.cdc_title, self.mb_title, self.hk_title, self.theme_title]:
+        self.accent_bar.configure(bg=self.accent)
+        self.title_label.configure(fg=self.accent)
+        for title in [self.speed_title, self.controls_title, self.accent_title]:
             title.configure(fg=self.accent)
-        for rb in self.radio_buttons:
-            rb.configure(selectcolor="#1c1c25", fg=TEXT)
-            rb.configure(highlightbackground=self.accent)
-        for k, btn in self.nav_buttons.items():
-            pass
-        # redraw swatch selection rings
+        self.hotkey_box.configure(highlightbackground=self.accent)
+        self.hotkey_icon.configure(fg=self.accent)
+        self.hotkey_display.configure(fg=self.accent)
+        self.cps_entry.configure(fg=self.accent, insertbackground=self.accent)
+        self.cdc_entry.configure(fg=self.accent, insertbackground=self.accent)
+        self._style_button_buttons()
+        self._style_mode_buttons()
         for c in self.accent_swatch_canvases:
             c.delete("ring")
             if c.color == self.accent:
-                c.create_oval(1, 1, 39, 39, outline=self.accent, width=2, tags="ring")
-        self._refresh_status()
+                c.create_oval(0, 0, 34, 34, outline=self.accent, width=2, tags="ring")
+        self._refresh_toggle_label()
+
+    # ----- settings persistence -----
+    def _save(self):
+        save_settings({
+            "accent": self.accent,
+            "cps": self.cps_value,
+            "cdc": self.cdc_value,
+            "button": self.button_var.get(),
+            "hotkey_combo": self.hotkey_combo,
+            "trigger_mode": self.trigger_mode,
+        })
 
 
 def main():
